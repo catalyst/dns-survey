@@ -16,7 +16,7 @@
 #
 
 """
-dns-survey - Produce an sqlite database of sniffed DNS rrnames grouped by hour.
+dns-survey - Produce an sqlite database of sniffed DNS qrnames grouped by hour.
 
 Michael Fincham <michael.fincham@catalyst.net.nz>
 """
@@ -43,7 +43,7 @@ class AnswerCounter(object):
         try:
             self.conn = sqlite3.connect(self.database_path)
             self.conn.execute(
-                "create table if not exists rrnames(rrname TEXT, hour INTEGER, count INTEGER, UNIQUE(rrname, hour));"
+                "create table if not exists qrnames(qrname TEXT, hour INTEGER, count INTEGER, UNIQUE(qrname, hour));"
             )
         except:
             logging.error('unable to open database "%s"' % self.database_path)
@@ -53,13 +53,13 @@ class AnswerCounter(object):
         return datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
 
     def _sniffer_callback(self, packet):
-        if packet.haslayer(DNSRR) and packet[DNS].aa == 1:
-            rrname = packet[DNSRR].rrname
+        if packet.haslayer(DNSRR) and packet.haslayer(DNSQR) and packet[DNS].aa == 1 and packet[DNS].rcode == 0:
+            qrname = packet[DNSQR].qrname.lower()
 
-            if rrname not in self.totals:
-                self.totals[rrname] = 0
+            if qrname not in self.totals:
+                self.totals[qrname] = 0
 
-            self.totals[rrname] += 1
+            self.totals[qrname] += 1
             self.packet_count += 1
 
         if self.packet_count == 100:
@@ -68,10 +68,10 @@ class AnswerCounter(object):
             try:
                 c = self.conn.cursor()
 
-                for rrname, count in self.totals.iteritems():
+                for qrname, count in self.totals.iteritems():
                     hour = self._hour()
-                    c.execute("INSERT OR IGNORE INTO rrnames VALUES (?, ?, 0);", (rrname, hour))
-                    c.execute("UPDATE rrnames SET count = count + ? WHERE rrname=? AND hour=?;", (count, rrname, hour))
+                    c.execute("INSERT OR IGNORE INTO qrnames VALUES (?, ?, 0);", (qrname, hour))
+                    c.execute("UPDATE qrnames SET count = count + ? WHERE qrname=? AND hour=?;", (count, qrname, hour))
 
                 self.conn.commit()
                 self.packet_count = 0
