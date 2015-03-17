@@ -21,20 +21,33 @@ dns-survey - Produce an sqlite database of sniffed DNS rrnames grouped by hour.
 Michael Fincham <michael.fincham@catalyst.net.nz>
 """
 
+import argparse
 import datetime
 import logging
+import sys
 
 import sqlite3
 from scapy.all import *
 
 class AnswerCounter(object):
-    def __init__(self):
+    DEFAULT_DATABASE_PATH = 'survey.sqlite3'
+    DEFAULT_PACKET_COUNT_INTERVAL = 100
+
+    def __init__(self, database_path=DEFAULT_DATABASE_PATH, packet_count_interval=DEFAULT_PACKET_COUNT_INTERVAL):
+        self.database_path = database_path
+        self.packet_count_interval = packet_count_interval
         self.totals = {}
         self.packet_count = 0
-        self.conn = sqlite3.connect('survey.sqlite3')
-        self.conn.execute(
-            "create table if not exists rrnames(rrname TEXT, hour INTEGER, count INTEGER, UNIQUE(rrname, hour));"
-        )
+        logging.info('using database "%s"' % self.database_path)
+
+        try:
+            self.conn = sqlite3.connect(self.database_path)
+            self.conn.execute(
+                "create table if not exists rrnames(rrname TEXT, hour INTEGER, count INTEGER, UNIQUE(rrname, hour));"
+            )
+        except:
+            logging.error('unable to open database "%s"' % self.database_path)
+            raise
 
     def _hour(self):
         return datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
@@ -50,24 +63,44 @@ class AnswerCounter(object):
             self.packet_count += 1
 
         if self.packet_count == 100:
-            c = self.conn.cursor()
+            logging.info('saving totals to database...')
 
-            for rrname, count in self.totals.iteritems():
-                hour = self._hour()
-                c.execute("INSERT OR IGNORE INTO rrnames VALUES (?, ?, 0);", (rrname, hour))
-                c.execute("UPDATE rrnames SET count = count + ? WHERE rrname=? AND hour=?;", (count, rrname, hour))
+            try:
+                c = self.conn.cursor()
 
-            self.conn.commit()
-            self.packet_count = 0
-            self.totals = {}
+                for rrname, count in self.totals.iteritems():
+                    hour = self._hour()
+                    c.execute("INSERT OR IGNORE INTO rrnames VALUES (?, ?, 0);", (rrname, hour))
+                    c.execute("UPDATE rrnames SET count = count + ? WHERE rrname=? AND hour=?;", (count, rrname, hour))
+
+                self.conn.commit()
+                self.packet_count = 0
+                self.totals = {}
+                logging.info('saved')
+            except:
+                logging.error('could not save to database')
+                raise
 
     def start_capture(self):
         logging.info('starting sniffer...')
-        sniff(filter="udp and port 53", prn=self._sniffer_callback, store=0)
+        try:
+            sniff(filter="udp and port 53", prn=self._sniffer_callback, store=0)
+        except:
+            logging.error('could not capture packets')
+            raise
 
 
 if __name__ == "__main__":
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.INFO)
 
-    counter = AnswerCounter()
-    counter.start_capture()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--database-path', metavar="PATH", type=str, default=AnswerCounter.DEFAULT_DATABASE_PATH, help='path to sqlite3 database for output, defaults to %s' % AnswerCounter.DEFAULT_DATABASE_PATH)
+    parser.add_argument('--packet-count-interval', metavar="PACKETS", type=int, default=AnswerCounter.DEFAULT_PACKET_COUNT_INTERVAL, help='how many packets between database flushes, defaults to %i' % AnswerCounter.DEFAULT_PACKET_COUNT_INTERVAL)
+    args = parser.parse_args()
+
+    try:
+        counter = AnswerCounter(database_path=args.database_path, packet_count_interval=args.packet_count_interval)
+        counter.start_capture()
+    except:
+        logging.error('error encountered during capture, giving up')
+        sys.exit(1)
