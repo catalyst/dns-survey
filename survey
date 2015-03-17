@@ -1,0 +1,46 @@
+#!/usr/bin/env python
+
+import datetime
+
+import sqlite3
+from scapy.all import *
+
+class AnswerCounter(object):
+    def __init__(self):
+        self.totals = {}
+        self.packet_count = 0
+        self.conn = sqlite3.connect('survey.sqlite3')
+        self.conn.execute(
+            "create table if not exists rrnames(rrname TEXT, hour INTEGER, count INTEGER, UNIQUE(rrname, hour));"
+        )
+
+    def _hour(self):
+        return datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
+
+    def sniffer_callback(self, packet):
+        if packet.haslayer(DNSRR) :
+            rrname = packet[DNSRR].rrname
+
+            if rrname not in self.totals:
+                self.totals[rrname] = 0
+
+            self.totals[rrname] += 1
+            self.packet_count += 1
+
+        if self.packet_count == 10:
+            print self.totals
+            c = self.conn.cursor()
+
+            for rrname, count in self.totals.iteritems():
+                hour = self._hour()
+                c.execute("INSERT OR IGNORE INTO rrnames VALUES (?, ?, 0);", (rrname, hour))
+                c.execute("UPDATE rrnames SET count = count + ? WHERE rrname=? AND hour=?;", (count, rrname, hour))
+
+            self.conn.commit()
+            self.packet_count = 0
+            self.totals = {}
+
+
+if __name__ == "__main__":
+    counter = AnswerCounter()
+    sniff(filter="udp and port 53", prn=counter.sniffer_callback, store=0)
