@@ -53,7 +53,7 @@ class AnswerCounter(object):
         return datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
 
     def _sniffer_callback(self, packet):
-        if packet.haslayer(DNSRR) :
+        if packet.haslayer(DNSRR) and packet[DNS].aa == 1:
             rrname = packet[DNSRR].rrname
 
             if rrname not in self.totals:
