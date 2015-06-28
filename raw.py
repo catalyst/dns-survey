@@ -16,8 +16,7 @@
 #
 
 """
-Raw socket DNS sniffer. Designed to run on python 2.5 thru 2.7.
-Scapy's `sniff' function is too slow on embedded devices, this approach uses considerably less CPU (for some reason).
+Raw socket DNS sniffer. Designed to run on python 2.5 thru 2.7. Don't use this, just use scapy instead.
 
 Michael Fincham <michael.fincham@catalyst.net.nz>
 """
